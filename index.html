@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ABL Column – Babylon.js Interactive</title>
+<style>
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: #05060a;
+  }
+  #overlay {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    z-index: 10;
+    color: white;
+    padding: 12px 15px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: rgba(0,0,0,0.55);
+    border-radius: 8px;
+    width: 290px;
+    font-size: 13px;
+  }
+  #overlay b { font-size: 14px; }
+  #parcelHUD {
+    position: absolute;
+    color: #ffdd99;
+    text-shadow: 0 0 4px #000;
+    font-family: monospace;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 20;
+  }
+  /*Snowflake
+  */
+  #easterEgg {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 15;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 999px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  color: #f0f4ff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+#easterEgg .flake {
+  font-size: 20px;
+  position: relative;
+}
+
+#easterEgg .hat {
+  position: absolute;
+  font-size: 16px;
+  margin-left: -12px;   
+  margin-top: -10px;    
+  transform: rotate(-20deg) translateY(4px);
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+#easterEgg .label {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* State when hat is ON */
+#easterEgg.hat-on .hat {
+  opacity: 1;
+  transform: rotate(-10deg) translateY(0px);
+}
+
+#easterEgg.hat-on {
+  background: rgba(40, 10, 10, 0.75);
+  color: #ffe7c2;
+}
+/*
+*/
+
+
+
+
+</style>
+</head>
+
+<body>
+<div id="overlay">
+  <b>1-D Atmospheric Boundary Layer Model – 3-D Conceptual Visualisation</b><br>
+  A simplified 3-D representation of vertical thermodynamic structure (θ(z), LCL, BL height, cloud layer).<br><br>
+  Colour = potential temperature θ(z) from model profile.<br><br>
+  <b>Features:</b><br>
+  • <span style="color:#1d7fff;">Blue plane</span>: boundary-layer top h(t).<br>
+  • <span style="color:#64b5ff;">Blue arrows</span> around column: LCL – lifting condensation level (cloud base).<br>
+  • <span style="color:#bababa;">Soft white puffs</span>: cloud layer between LCL and cloud-top height.<br>
+  • <span style="color:#ff8b2b;">Orange sphere</span>: rising parcel (z[height] and θ[temperature] shown).<br>
+  • <span style="color:#fc2e00;">Surface arrows</span>: sensible heat flux. Low = <span style="color:#002efc;">blue</span>, mid = <span style="color:#fc7e00;">orange</span>, high = <span style="color:#fc2e00;">red</span>.<br>
+  • <span style="color:#209500;">Green relief surface</span>: mountains, hills and plains.<br>
+<!--  • Surface arrows: sensible heat flux. Low = blue, mid = orange, high = red.<br>
+  • Green relief surface: 1/3 mountains, 1/3 hills, 1/3 plains.-->
+</div>
+
+<div id="parcelHUD"></div>
+
+<!-- Snowflake Easter egg-->
+<div id="easterEgg">
+  <span class="flake">❄️</span>
+  <span class="hat">🎅</span>
+  <span class="label">Click me</span>
+</div>
+<!-- Snowflake Easter egg ends-->
+
+<canvas id="renderCanvas" style="width:100%; height:100%;"></canvas>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+
+<script>
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer:true, stencil:true });
+const parcelHUD = document.getElementById("parcelHUD");
+
+///snowflake
+
+
+const egg = document.getElementById("easterEgg");
+const eggLabel = egg.querySelector(".label");
+let hatOn = false;
+
+egg.addEventListener("click", () => {
+  hatOn = !hatOn;
+  egg.classList.toggle("hat-on", hatOn);
+  eggLabel.textContent = hatOn ? "Merry Christmas!" : "Click me";
+});
+
+
+
+
+////
+
+
+
+function createScene() {
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color3(0.02,0.03,0.05);
+
+    const camera = new BABYLON.ArcRotateCamera("camera",
+        -Math.PI/4, Math.PI/3, 4,
+        new BABYLON.Vector3(0,0.8,0),
+        scene
+    );
+    camera.attachControl(canvas, true);
+    camera.wheelDeltaPercentage = 0.02;
+
+    const hemi = new BABYLON.HemisphericLight("hemi",
+        new BABYLON.Vector3(0,1,0), scene);
+    hemi.intensity = 0.9;
+
+    const sun = new BABYLON.DirectionalLight("sun",
+        new BABYLON.Vector3(-1,-2,-1), scene);
+    sun.intensity = 0.6;
+
+    const z_lev_data = [
+        0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0,
+        100.0, 150.0, 200.0, 250.0, 300.0, 350.0, 400.0, 450.0, 500.0, 550.0,
+        600.0, 650.0, 700.0, 750.0, 800.0, 850.0, 900.0, 950.0, 1000.0, 1050.0,
+        1100.0, 1150.0, 1200.0, 1250.0, 1300.0, 1350.0, 1400.0, 1450.0, 1500.0, 1550.0,
+        1600.0, 1650.0, 1700.0, 1750.0, 1800.0, 1850.0, 1900.0, 1950.0, 2000.0, 2050.0,
+        2100.0, 2150.0, 2200.0, 2250.0, 2300.0, 2350.0, 2400.0, 2450.0, 2500.0, 2550.0,
+        2600.0, 2650.0, 2700.0, 2750.0, 2800.0, 2850.0, 2900.0, 2950.0, 3000.0, 3050.0,
+        3100.0, 3150.0, 3200.0, 3250.0, 3300.0, 3350.0, 3400.0, 3450.0, 3500.0, 3550.0,
+        3600.0, 3650.0, 3700.0, 3750.0, 3800.0, 3850.0, 3900.0, 3950.0, 4000.0
+    ];
+
+    const theta_data = [
+        270.115, 272.589, 273.486, 274.270, 274.905, 275.258,
+        275.822, 276.056, 276.157, 276.250, 276.352, 276.837,
+        277.515, 278.012, 278.393, 278.577, 278.671, 278.759,
+        278.777, 278.833, 279.022, 281.448, 282.600, 283.452,
+        283.753, 284.764, 285.470, 285.862, 286.365, 286.869,
+        287.263, 287.671, 288.280, 288.577, 288.878, 289.381,
+        289.584, 290.085, 290.501, 291.006, 291.415, 291.509,
+        292.131, 292.635, 293.057, 293.251, 293.766, 294.190,
+        294.383, 294.697, 295.003, 295.313, 295.723, 296.136,
+        296.553, 296.963, 297.064, 297.270, 297.371, 297.794,
+        297.994, 298.304, 298.399, 298.498, 298.705, 298.903,
+        298.998, 298.986, 299.193, 299.297, 299.391, 299.607,
+        299.818, 300.024, 300.118, 300.214, 300.425, 300.528,
+        300.741, 301.174, 301.494, 301.827, 302.036, 302.585,
+        303.143, 303.469, 303.794, 304.241, 304.692
+    ];
+
+    const Z_MAX_M  = 4000.0;
+    const COLUMN_H = 1.6;
+    const RADIUS   = 1.0;   
+
+    function theta(z_m){
+        if (z_m <= z_lev_data[0]) return theta_data[0];
+        if (z_m >= z_lev_data[z_lev_data.length-1]) return theta_data[theta_data.length-1];
+        for (let i=0; i<z_lev_data.length-1; i++){
+            const z0 = z_lev_data[i];
+            const z1 = z_lev_data[i+1];
+            if (z_m >= z0 && z_m <= z1){
+                const w = (z_m - z0) / (z1 - z0);
+                return theta_data[i]*(1-w) + theta_data[i+1]*w;
+            }
+        }
+        return theta_data[theta_data.length-1];
+    }
+
+    function thetaColor(thetaK){
+        let t = (thetaK - 270.0) / (305.0 - 270.0);
+        t = Math.min(1.0, Math.max(0.0, t));
+
+        let r,g,b;
+        if (t < 0.33){
+            const w = t/0.33; r=0.0; g=w;   b=1.0-w;
+        } else if (t < 0.66){
+            const w = (t-0.33)/0.33; r=w;   g=1.0; b=0.0;
+        } else {
+            const w = (t-0.66)/0.34; r=1.0; g=1.0-w; b=0.0;
+        }
+        const mix = 0.55;
+        r = mix*r + (1-mix)*1.0;
+        g = mix*g + (1-mix)*1.0;
+        b = mix*b + (1-mix)*1.0;
+        return new BABYLON.Color3(r,g,b);
+    }
+
+    const Z0_LOG = 500.0;  //tune 
+
+    function zToY(z_m) {
+        const z = Math.max(0, Math.min(Z_MAX_M, z_m));
+        const A = Math.log(1 + Z_MAX_M / Z0_LOG);
+        const yNorm = Math.log(1 + z / Z0_LOG) / A;  
+        return yNorm * COLUMN_H;
+    }
+
+    const baseGround = BABYLON.MeshBuilder.CreateGround("baseGround",
+        {width:2.6, height:2.6}, scene);
+    const baseMat = new BABYLON.StandardMaterial("baseMat", scene);
+    baseMat.diffuseColor = new BABYLON.Color3(0.06,0.06,0.07);
+    baseGround.material = baseMat;
+    baseGround.position.y = -0.02;
+
+    const plateau = BABYLON.MeshBuilder.CreateCylinder("plateau", {
+        height: 0.02,
+        diameter: 2.2,
+        tessellation: 64
+    }, scene);
+    const platMat = new BABYLON.StandardMaterial("platMat", scene);
+    platMat.diffuseColor = new BABYLON.Color3(0.16,0.38,0.16);
+    plateau.material = platMat;
+    plateau.position.y = 0.0;  
+
+    const sectorWidth = 2*Math.PI/3;
+    const mountainCenter = 0.0;
+    const mountainStart  = mountainCenter - sectorWidth/2;
+    const mountainEnd    = mountainCenter + sectorWidth/2;
+
+    const hillCenter = 2*Math.PI/3;
+    const hillStart  = hillCenter - sectorWidth/2;
+    const hillEnd    = hillCenter + sectorWidth/2;
+
+    
+    // HILLS 
+    const hillMat = new BABYLON.StandardMaterial("hillMat", scene);
+    hillMat.diffuseColor = new BABYLON.Color3(0.20,0.46,0.20);
+    const hills = [];
+    const HILL_COUNT = 32;
+    for (let i=0; i<HILL_COUNT; i++){
+        const ang = hillStart + Math.random()*(hillEnd - hillStart);
+        const r = 0.35 + 0.65*Math.random();
+        const sx = r*Math.cos(ang);
+        const sz = -r*Math.sin(ang);
+        const d  = 0.25 + 0.12*Math.random();
+        const hill = BABYLON.MeshBuilder.CreateSphere("hill"+i, {
+            diameter: d
+        }, scene);
+        hill.scaling.y = 0.30;                 
+        hill.material = hillMat;
+        hill.position.set(sx, -0.02 + d*0.08, sz);
+        hills.push(hill);
+    }
+
+    // MOUNTAIN RANGE 
+    const mountainMat = new BABYLON.StandardMaterial("mountMat", scene);
+    mountainMat.diffuseColor = new BABYLON.Color3(0.10,0.25,0.12);
+    const mountains = [];
+    const N_MOUNTAINS = 20;
+    for (let i=0; i<N_MOUNTAINS; i++){
+        const ang = mountainStart + Math.random()*(mountainEnd - mountainStart);
+        const r = 0.5 + 0.5*Math.random();           
+        const h = 0.26 + 0.09*Math.random();
+        const d = 0.40 + 0.12*Math.random();
+        const m = BABYLON.MeshBuilder.CreateCylinder("mount"+i, {
+            height: h,
+            diameterTop: 0.04*d,
+            diameterBottom: d,
+            tessellation: 5
+        }, scene);
+        m.material = mountainMat;
+        m.position.x = r*Math.cos(ang);
+        m.position.z = r*Math.sin(ang);
+        m.position.y = h/2;                           
+        mountains.push(m);
+    }
+
+
+
+
+
+
+
+
+    // HEAT-FLUX ARROWS 
+    const arrowShafts = [];
+    const arrowHeads  = [];
+    const ARROW_COUNT = 10;
+
+    const shaftH = 0.20;
+    const headH  = 0.07;
+    const shaftR = 0.01;
+    const headR  = 0.035;
+
+    const ARROW_BASE_Y = shaftH / 2;   
+    const ARROW_AMP    = 0.06;         
+
+    function arrowColorFromHeight(t) {
+        let r,g,b;
+        if (t < 0.5) {
+            const w = t / 0.5;           
+            r = w;
+            g = 0.5;
+            b = 1.0 - w;
+        } else {
+            const w = (t - 0.5) / 0.5;   
+            r = 1.0;
+            g = 0.5 + (0.15 - 0.5) * w;
+            b = 0.0;
+        }
+        return new BABYLON.Color3(r,g,b);
+    }
+
+    for (let i=0; i<ARROW_COUNT; i++){
+        const x0 = -0.9 + i * 0.2;
+        const z0 = -1.05;
+
+        const shaft = BABYLON.MeshBuilder.CreateCylinder("shaft"+i, {
+            height: shaftH,
+            diameter: shaftR*2,
+            tessellation: 12
+        }, scene);
+        const shaftMat = new BABYLON.StandardMaterial("shaftMat"+i, scene);
+        shaft.material = shaftMat;
+        shaft.position.set(x0, ARROW_BASE_Y, z0);
+
+        const head = BABYLON.MeshBuilder.CreateCylinder("head"+i, {
+            height: headH,
+            diameterTop: 0.0,
+            diameterBottom: headR*2,
+            tessellation: 16
+        }, scene);
+        const headMat = new BABYLON.StandardMaterial("headMat"+i, scene);
+        head.material = headMat;
+        head.position.set(x0, ARROW_BASE_Y + shaftH/2 + headH/2, z0);
+
+        arrowShafts.push(shaft);
+        arrowHeads.push(head);
+    }
+
+    // θ(z) CYLINDER 
+    const cyl = BABYLON.MeshBuilder.CreateCylinder("cyl", {
+        height: COLUMN_H,
+        diameter: 2*RADIUS,
+        tessellation: 64,
+        subdivisions: 80
+    }, scene);
+
+    cyl.position.y = COLUMN_H / 2; 
+
+    const pos = cyl.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    const nVerts = pos.length / 3;
+    const colors = new Float32Array(nVerts * 4);
+
+    for (let i=0; i<nVerts; i++){
+        const yLocal = pos[3*i + 1];                  
+        const yNorm = (yLocal + COLUMN_H/2)/COLUMN_H; 
+        const z_m = yNorm * Z_MAX_M;
+        const th  = theta(z_m);
+        const col = thetaColor(th);
+        colors[4*i+0] = col.r;
+        colors[4*i+1] = col.g;
+        colors[4*i+2] = col.b;
+        colors[4*i+3] = 0.45;
+    }
+
+    cyl.setVerticesData(BABYLON.VertexBuffer.ColorKind, colors);
+    const cylMat = new BABYLON.StandardMaterial("cylMat", scene);
+    cylMat.useVertexColors = true;
+    cylMat.backFaceCulling = false;
+    cylMat.alpha = 0.45;
+    cyl.material = cylMat;
+
+    const axisBaseY = 0.0;
+
+    const axis = BABYLON.MeshBuilder.CreateLines("axis", {
+        points: [
+            new BABYLON.Vector3(-1.2, axisBaseY, -1.2),
+            new BABYLON.Vector3(-1.2, axisBaseY + COLUMN_H, -1.2)
+        ]
+    }, scene);
+    axis.color = new BABYLON.Color3(0.9,0.9,0.9);
+
+    for (let m=0; m<=4000; m+=500){
+        const y = axisBaseY + zToY(m);
+        const tick = BABYLON.MeshBuilder.CreateLines("tick"+m, {
+            points: [
+                new BABYLON.Vector3(-1.25, y, -1.2),
+                new BABYLON.Vector3(-1.15, y, -1.2)
+            ]
+        }, scene);
+        tick.color = new BABYLON.Color3(1,1,1);
+    }
+
+    // PLANES & CLOUD PARAMETERS 
+    function makePlane(color3){
+        const p = BABYLON.MeshBuilder.CreateGround("p", {width:1.8, height:1.8}, scene);
+        const pm = new BABYLON.StandardMaterial("pm", scene);
+        pm.diffuseColor = color3;
+        pm.alpha = 0.35;
+        p.material = pm;
+        return p;
+    }
+
+    const BL_BASE_M  = 800.0;
+    const LCL_BASE_M = 600.0;
+    const TOP_BASE_M = 1600.0;
+
+    const planeBL  = makePlane(new BABYLON.Color3(0.11, 0.49, 1.0));
+    planeBL.position.y  = axisBaseY + zToY(BL_BASE_M);
+
+    const LCL_ARROW_COUNT = 16;
+    const lclArrows = [];
+    const lclMat = new BABYLON.StandardMaterial("lclMat", scene);
+    lclMat.diffuseColor = new BABYLON.Color3(0.4,0.72,1.0);
+    const lclShaftH = 0.075;
+    const lclHeadH  = 0.045;
+    const lclShaftR = 0.007;
+    const lclHeadR  = 0.020;
+    const lclYBase  = axisBaseY + zToY(LCL_BASE_M);
+
+    for (let i=0; i<LCL_ARROW_COUNT; i++){
+        const ang = (i / LCL_ARROW_COUNT) * Math.PI * 2;
+        const r   = RADIUS * 0.9;
+        const x0  = r * Math.cos(ang);
+        const z0  = r * Math.sin(ang);
+
+        const shaft = BABYLON.MeshBuilder.CreateCylinder("lclShaft"+i, {
+            height: lclShaftH,
+            diameter: lclShaftR*2
+        }, scene);
+        shaft.material = lclMat;
+        shaft.position.set(x0, lclYBase + lclShaftH/2, z0);
+
+        const head = BABYLON.MeshBuilder.CreateCylinder("lclHead"+i, {
+            height: lclHeadH,
+            diameterTop: 0.0,
+            diameterBottom: lclHeadR*2,
+            tessellation: 12
+        }, scene);
+        head.material = lclMat;
+        head.position.set(x0, lclYBase + lclShaftH + lclHeadH/2, z0);
+
+        lclArrows.push({shaft, head});
+    }
+
+    //CLOUD LAYER 
+    const CLOUD_PUFF_COUNT = 120;
+    const cloudPuffs = [];
+    const cloudMatBase = new BABYLON.StandardMaterial("cloudBaseMat", scene);
+    cloudMatBase.diffuseColor = new BABYLON.Color3(1,1,1);
+
+    const CLOUD_CLUSTER_COUNT = 5;
+    const clusterAngles = [
+        0.0,
+        2*Math.PI/5,
+        4*Math.PI/5,
+        6*Math.PI/5,
+        8*Math.PI/5
+    ];
+    const clusterFracZ  = [0.3, 0.45, 0.6, 0.75, 0.9];
+
+    for (let i=0; i<CLOUD_PUFF_COUNT; i++){
+        const c = Math.floor(Math.random()*CLOUD_CLUSTER_COUNT);
+        const baseAng = clusterAngles[c];
+        const ang = baseAng + (Math.random()-0.5)*0.55;
+        const r   = RADIUS*0.5 + (Math.random()-0.5)*0.25;
+
+        const fracBase = clusterFracZ[c];
+        const spanFrac = 0.18;
+        const frac = fracBase + (Math.random()-0.5)*spanFrac;
+        const z_m = LCL_BASE_M + frac*(TOP_BASE_M - LCL_BASE_M);
+        const y   = axisBaseY + zToY(z_m);
+
+        const px = r*Math.cos(ang);
+        const pz = r*Math.sin(ang);
+
+        const s  = 0.11 + 0.08*Math.random();
+        const puff = BABYLON.MeshBuilder.CreateSphere("cloudPuff"+i,
+            {diameter:s}, scene);
+
+        const mat = cloudMatBase.clone("cloudMat"+i);
+        mat.alpha = 0.33;
+        puff.material = mat;
+
+        puff.position.set(px, y, pz);
+        cloudPuffs.push(puff);
+    }
+
+    // PARCEL + LOCAL CLOUD PUFF 
+    const parcel = BABYLON.MeshBuilder.CreateSphere("parcel",{diameter:0.12},scene);
+    const pMat = new BABYLON.StandardMaterial("pMat",scene);
+    pMat.diffuseColor  = new BABYLON.Color3(1.0,0.55,0.17);
+    pMat.emissiveColor = new BABYLON.Color3(0.4,0.15,0.0);
+    parcel.material = pMat;
+
+    const puff = BABYLON.MeshBuilder.CreateSphere("puff",{diameter:0.18},scene);
+    const puffMat = new BABYLON.StandardMaterial("puffMat",scene);
+    puffMat.diffuseColor = new BABYLON.Color3(1,1,1);
+    puffMat.alpha = 0.0;
+    puff.material = puffMat;
+
+    // SIMPLE TRAIL FOR PARCEL 
+    let parcelTrail = null;                 
+    const trailPoints = [];                 
+    const maxTrailPoints = 2500;              
+    const trailColor = new BABYLON.Color3(1.0, 0.45, 0.1);  
+    //
+
+    
+
+
+    // ANIMATION 
+    let t0 = performance.now();
+
+    scene.onBeforeRenderObservable.add(()=>{
+        const t = (performance.now() - t0)/1000.0;
+
+        planeBL.position.y  = axisBaseY + zToY(BL_BASE_M + 80  * Math.sin(0.25 * t));
+
+        lclArrows.forEach((obj, i)=>{
+            const phase = t*1.1 + i*0.3;
+            const scale = 1.0 + 0.10*Math.sin(phase);
+            obj.shaft.scaling.y = scale;
+            obj.head.scaling.y  = scale;
+        });
+
+        const z_m = (t * 200.0) % Z_MAX_M;
+        parcel.position.y = axisBaseY + zToY(z_m);
+        parcel.position.x = 0.25*Math.sin(0.7*t);
+        parcel.position.z = 0.25*Math.cos(0.5*t);
+
+        if (z_m > LCL_BASE_M && z_m < TOP_BASE_M){
+            puff.position.copyFrom(parcel.position);
+            const dEdge = Math.min(Math.abs(z_m - LCL_BASE_M), Math.abs(z_m - TOP_BASE_M));
+            puff.material.alpha = 0.9 * Math.max(0.0, 1.0 - dEdge / 400.0);
+        } else {
+            puff.material.alpha = 0.0;
+        }
+
+        //////
+        trailPoints.push(parcel.position.clone());
+
+        if (trailPoints.length > maxTrailPoints) {
+            trailPoints.shift();
+        }
+
+        if (parcelTrail) {
+            parcelTrail.dispose();
+        }
+
+        parcelTrail = BABYLON.MeshBuilder.CreateLines("parcelTrail", {
+            points: trailPoints
+        }, scene);
+
+        parcelTrail.color = trailColor;
+        
+
+
+
+
+        //////
+
+        // Cloud drift 
+        cloudPuffs.forEach((cp, i)=>{
+            const phase = 0.22*t + i*0.2;
+            cp.position.x += 0.0003*Math.sin(phase);
+            cp.position.z += 0.0003*Math.cos(phase*1.05);
+        });
+
+        for (let i=0; i<ARROW_COUNT; i++){
+            const shaft = arrowShafts[i];
+            const head  = arrowHeads[i];
+
+            const phase = 2.0*t + i*0.4;
+            const offset = ARROW_AMP * Math.sin(phase);
+
+            const shaftY = ARROW_BASE_Y + offset;
+            shaft.position.y = shaftY;
+            head.position.y  = shaftY + shaftH/2 + headH/2;
+
+            const tNorm = (offset + ARROW_AMP) / (2*ARROW_AMP);
+            const col = arrowColorFromHeight(tNorm);
+
+            shaft.material.diffuseColor = col;
+            head.material.diffuseColor  = col;
+            head.material.emissiveColor = col.scale(0.4);
+        }
+
+        // HUD
+        const proj = BABYLON.Vector3.Project(
+            parcel.position,
+            BABYLON.Matrix.Identity(),
+            scene.getTransformMatrix(),
+            camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+        );
+        parcelHUD.style.left = (proj.x + 10) + "px";
+        parcelHUD.style.top  = (proj.y - 10) + "px";
+        parcelHUD.innerHTML =
+            "z = " + z_m.toFixed(0) + " m<br>θ = " + theta(z_m).toFixed(1) + " K";
+    });
+
+    return scene;
+}
+
+const scene = createScene();
+engine.runRenderLoop(()=>scene.render());
+window.addEventListener("resize", ()=>engine.resize());
+</script>
+
+</body>
+</html>
