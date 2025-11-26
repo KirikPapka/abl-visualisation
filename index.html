@@ -89,7 +89,29 @@
 /*
 */
 
+#resetBtn {
+  position: absolute;
+  top: 390px;
+  left: 16px;
+  z-index: 20;
+  padding: 18px 28px;
+  background: rgba(0,0,0,0.55);
+  border-radius: 6px;
+  color: #eee;
+  font-size: 18px;
+  font-family: system-ui, sans-serif;
+  cursor: pointer;
+  user-select: none;
+  transition: 0.15s;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+#resetBtn:hover {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
 
+/*
+*/
 
 
 </style>
@@ -120,6 +142,12 @@
   <span class="label">Click me</span>
 </div>
 <!-- Snowflake Easter egg ends-->
+
+<!--reset button-->
+
+<div id="resetBtn">↺ Reset</div>
+
+<!--reset button-->
 
 <canvas id="renderCanvas" style="width:100%; height:100%;"></canvas>
 
@@ -160,7 +188,27 @@ function createScene() {
         scene
     );
     camera.attachControl(canvas, true);
-    camera.wheelDeltaPercentage = 0.02;
+    camera.wheelDeltaPercentage = 0.002;
+ 
+    //////
+
+    const initialAlpha  = camera.alpha;
+    const initialBeta   = camera.beta;
+    const initialRadius = camera.radius;
+    const initialTarget = camera.target.clone();
+
+    document.getElementById("resetBtn").addEventListener("click", () => {
+        camera.alpha  = initialAlpha;
+        camera.beta   = initialBeta;
+        camera.radius = initialRadius;
+        camera.setTarget(initialTarget.clone());
+    });
+    /////
+    camera.lowerRadiusLimit = initialRadius / 3;
+    camera.upperRadiusLimit = initialRadius * 3;
+
+
+    /////
 
     const hemi = new BABYLON.HemisphericLight("hemi",
         new BABYLON.Vector3(0,1,0), scene);
